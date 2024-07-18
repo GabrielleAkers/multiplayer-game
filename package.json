@@ -1,0 +1,28 @@
+{
+  "name": "multiplayer-game",
+  "version": "1.0.0",
+  "description": "multiplayer game demo",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "dev": "tsc -w & node serve.cjs",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Gabrielle Akers",
+  "license": "MIT",
+  "dependencies": {
+    "http-server": "^14.1.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.7.0",
+    "@types/eslint__js": "^8.42.3",
+    "@types/ws": "^8.5.11",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "3.3.3",
+    "typescript": "^5.5.3",
+    "typescript-eslint": "^7.16.1"
+  }
+}
