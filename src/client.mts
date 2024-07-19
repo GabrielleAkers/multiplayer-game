@@ -9,18 +9,19 @@ import * as common from "./common.mjs";
     if (ctx === null) throw new Error("2d canvas not found");
 
     let ws: WebSocket | undefined = new WebSocket(`ws://${window.location.hostname}:${common.SERVER_PORT}`);
+
     const players = new Map<number, common.Player>();
     let player: common.Player | undefined = undefined;
 
     ws.addEventListener("message", evt => {
         const msg = JSON.parse(evt.data);
         if (player === undefined) {
-            if (common.is_client_init(msg)) {
+            if (common.is_player_init(msg)) {
                 player = {
                     id: msg.id,
                     location: msg.location,
                     hex_color: msg.hex_color,
-                    movement: { is_moving: false, target: { x: 0, y: 0 } }
+                    movement: { is_moving: false, target: msg.location }
                 };
                 players.set(msg.id, player);
             } else {
@@ -33,10 +34,17 @@ import * as common from "./common.mjs";
                     id: msg.id,
                     location: msg.location,
                     hex_color: msg.hex_color,
-                    movement: { is_moving: false, target: { x: 0, y: 0 } }
+                    movement: { is_moving: false, target: msg.location }
                 });
             } else if (common.is_player_left(msg)) {
                 players.delete(msg.id);
+            } else if (common.is_player_move(msg)) {
+                console.log("moving time :3", msg);
+                const p = players.get(msg.id);
+                if (p !== undefined) {
+                    p.location = msg.location;
+                    p.movement = msg.movement;
+                }
             } else {
                 console.log("i gets weird message O.o", msg);
                 ws?.close();
@@ -57,8 +65,24 @@ import * as common from "./common.mjs";
         console.error("ws error", evt);
     });
 
+    game_canvas.addEventListener("click", evt => {
+        // console.log("i clicks ;3", evt.clientX, evt.clientY);
+        if (ws !== undefined && player !== undefined) {
+            const target: common.Vector2 = { x: evt.clientX, y: evt.clientY };
+
+            player.movement = { is_moving: true, target };
+
+            common.send_ws_message<common.PlayerMove>(ws, {
+                label: "PlayerMove",
+                id: player.id,
+                location: player.location,
+                movement: { is_moving: true, target }
+            });
+        }
+    });
+
     let previous_timestamp = 0;
-    const anim_fram = (timestamp: number) => {
+    const draw_frame = (timestamp: number) => {
         const delta_time = (timestamp - previous_timestamp) / 1000;
         previous_timestamp = timestamp;
 
@@ -73,9 +97,10 @@ import * as common from "./common.mjs";
             ctx.fillStyle = "white";
             ctx.fillText(label, ctx.canvas.width / 2 - size.width / 2, ctx.canvas.height / 2);
         } else {
-            // draw players
+            // draw other players
             players.forEach(p => {
                 if (player !== undefined && player.id !== p.id) {
+                    common.update_player_position(p, delta_time);
                     ctx.beginPath();
                     ctx.arc(p.location.x, p.location.y, common.PLAYER_RADIUS, 0, 2 * Math.PI);
                     ctx.fillStyle = p.hex_color;
@@ -84,7 +109,9 @@ import * as common from "./common.mjs";
                 }
             });
 
+            // draw self
             if (player !== undefined) {
+                common.update_player_position(player, delta_time);
                 ctx.beginPath();
                 ctx.arc(player.location.x, player.location.y, common.PLAYER_RADIUS, 0, 2 * Math.PI);
                 ctx.fillStyle = player.hex_color;
@@ -94,10 +121,10 @@ import * as common from "./common.mjs";
                 ctx.stroke();
             }
         }
-        window.requestAnimationFrame(anim_fram);
+        window.requestAnimationFrame(draw_frame);
     };
     window.requestAnimationFrame(timestamp => {
         previous_timestamp = timestamp;
-        window.requestAnimationFrame(anim_fram);
+        window.requestAnimationFrame(draw_frame);
     });
 })();
