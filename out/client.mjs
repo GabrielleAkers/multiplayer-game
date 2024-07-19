@@ -1,4 +1,8 @@
 import * as common from "./common.mjs";
+import { is_player_init, is_player_joined, is_player_left, is_player_move } from "./lib/event.js";
+import { Movement, Player } from "./lib/player.js";
+import { send_ws_message } from "./lib/util.js";
+import { Vector2 } from "./lib/vector2.js";
 (async () => {
     const game_canvas = document.getElementById("game_canvas");
     if (game_canvas === null)
@@ -14,13 +18,8 @@ import * as common from "./common.mjs";
     ws.addEventListener("message", evt => {
         const msg = JSON.parse(evt.data);
         if (player === undefined) {
-            if (common.is_player_init(msg)) {
-                player = {
-                    id: msg.id,
-                    location: msg.location,
-                    hex_color: msg.hex_color,
-                    movement: { is_moving: false, target: msg.location }
-                };
+            if (is_player_init(msg)) {
+                player = new Player(msg.id, Vector2.from_vec2(msg.location), new Movement(false, Vector2.from_vec2(msg.location)), msg.style);
                 players.set(msg.id, player);
             }
             else {
@@ -29,23 +28,18 @@ import * as common from "./common.mjs";
             }
         }
         else {
-            if (common.is_player_joined(msg)) {
-                players.set(msg.id, {
-                    id: msg.id,
-                    location: msg.location,
-                    hex_color: msg.hex_color,
-                    movement: { is_moving: false, target: msg.location }
-                });
+            if (is_player_joined(msg)) {
+                players.set(msg.id, new Player(msg.id, Vector2.from_vec2(msg.location), new Movement(false, Vector2.from_vec2(msg.location)), msg.style));
             }
-            else if (common.is_player_left(msg)) {
+            else if (is_player_left(msg)) {
                 players.delete(msg.id);
             }
-            else if (common.is_player_move(msg)) {
+            else if (is_player_move(msg)) {
                 console.log("moving time :3", msg);
                 const p = players.get(msg.id);
                 if (p !== undefined) {
-                    p.location = msg.location;
-                    p.movement = msg.movement;
+                    p.location.copy(msg.location);
+                    p.movement.copy(msg.movement);
                 }
             }
             else {
@@ -65,15 +59,13 @@ import * as common from "./common.mjs";
         console.error("ws error", evt);
     });
     game_canvas.addEventListener("click", evt => {
-        // console.log("i clicks ;3", evt.clientX, evt.clientY);
         if (ws !== undefined && player !== undefined) {
-            const target = { x: evt.clientX, y: evt.clientY };
-            player.movement = { is_moving: true, target };
-            common.send_ws_message(ws, {
-                label: "PlayerMove",
-                id: player.id,
-                location: player.location,
-                movement: { is_moving: true, target }
+            player.movement.is_moving = true;
+            player.movement.target.copy({ x: evt.clientX - game_canvas.offsetLeft, y: evt.clientY - game_canvas.offsetTop });
+            // console.log("clicky ^.^", player.movement.target);
+            send_ws_message(ws, {
+                label: "ClientMove",
+                movement: player.movement
             });
         }
     });
@@ -95,23 +87,27 @@ import * as common from "./common.mjs";
             // draw other players
             players.forEach(p => {
                 if (player !== undefined && player.id !== p.id) {
-                    common.update_player_position(p, delta_time);
+                    if (p.movement.is_moving)
+                        p.update_position(delta_time);
                     ctx.beginPath();
                     ctx.arc(p.location.x, p.location.y, common.PLAYER_RADIUS, 0, 2 * Math.PI);
-                    ctx.fillStyle = p.hex_color;
+                    ctx.fillStyle = p.style.hex_color;
                     ctx.fill();
+                    ctx.strokeStyle = "grey";
+                    ctx.lineWidth = 1;
                     ctx.stroke();
                 }
             });
             // draw self
             if (player !== undefined) {
-                common.update_player_position(player, delta_time);
+                if (player.movement.is_moving)
+                    player.update_position(delta_time);
                 ctx.beginPath();
                 ctx.arc(player.location.x, player.location.y, common.PLAYER_RADIUS, 0, 2 * Math.PI);
-                ctx.fillStyle = player.hex_color;
+                ctx.fillStyle = player.style.hex_color;
                 ctx.fill();
                 ctx.strokeStyle = "white";
-                ctx.lineWidth = 4;
+                ctx.lineWidth = 3;
                 ctx.stroke();
             }
         }

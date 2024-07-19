@@ -1,11 +1,17 @@
 import { WebSocketServer, WebSocket } from "ws";
 import * as common from "./common.mjs";
+import { Vector2 } from "./lib/vector2.js";
+import { IPlayer, Movement, Player } from "./lib/player.js";
+import { Constructor, get_random, random_hexcolor, send_ws_message } from "./lib/util.js";
+import { PlayerEvent, PlayerInit, PlayerJoined, PlayerLeft, PlayerMove, is_client_move } from "./lib/event.js";
 
 const MAX_CONNECTIONS = 10;
 const SERVER_FPS = 60;
 
-interface WsPlayer extends common.Player {
-    ws: WebSocket;
+class WsPlayer extends Player {
+    constructor(public ws: WebSocket, ...args: ConstructorParameters<typeof Player>) {
+        super(...args);
+    }
 }
 
 const players = new Map<number, WsPlayer>();
@@ -13,7 +19,7 @@ let current_id = 0;
 const joined_players = new Set<number>();
 const left_players = new Set<number>();
 
-const event_queue: Array<common.PlayerEvent> = [];
+const event_queue: Array<PlayerEvent> = [];
 
 const wss = new WebSocketServer({
     host: "0.0.0.0",
@@ -27,31 +33,28 @@ wss.on("connection", (ws, req) => {
     }
 
     const id = current_id++;
-    const location = { x: common.get_random(common.PLAYER_RADIUS, common.CANVAS_WIDTH - common.PLAYER_RADIUS), y: common.get_random(common.PLAYER_RADIUS, common.CANVAS_HEIGHT - common.PLAYER_RADIUS) };
-    const movement = { is_moving: false, target: location };
-    const hex_color = common.random_hexcolor();
+    const location = new Vector2(
+        get_random(0.1 * common.CANVAS_WIDTH + 2 * common.PLAYER_RADIUS, 0.9 * common.CANVAS_WIDTH - 2 * common.PLAYER_RADIUS),
+        get_random(0.1 * common.CANVAS_HEIGHT + 2 * common.PLAYER_RADIUS, 0.9 * common.CANVAS_HEIGHT - 2 * common.PLAYER_RADIUS)
+    );
+    const movement = new Movement(false, Vector2.from_vec2(location));
+    const style = { hex_color: random_hexcolor() };
 
-    const player: WsPlayer = {
-        ws,
-        id,
-        location,
-        movement,
-        hex_color
-    };
+    const player = new WsPlayer(ws, id, location, movement, style);
     players.set(id, player);
     event_queue.push({
         label: "PlayerJoined",
         id,
-        hex_color,
+        style,
         location
     });
 
     ws.addEventListener("message", evt => {
         const msg = JSON.parse(evt.data.toString());
         // console.log("the messagerrrrr:", msg);
-        if (common.is_player_move(msg)) {
+        if (is_client_move(msg)) {
             console.log("the moverrrr", msg);
-            player.movement = msg.movement;
+            player.movement.copy(msg.movement);
         }
     });
 
@@ -91,18 +94,18 @@ const tick = () => {
     joined_players.forEach(id => {
         const player = players.get(id);
         if (player !== undefined) {
-            common.send_ws_message<common.PlayerInit>(player.ws, {
+            send_ws_message<PlayerInit>(player.ws, {
                 label: "PlayerInit",
                 id: player.id,
-                hex_color: player.hex_color,
+                style: player.style,
                 location: player.location
             });
 
             players.forEach(other_player => {
                 if (id !== other_player.id) {
-                    common.send_ws_message<common.PlayerJoined>(player.ws, {
+                    send_ws_message<PlayerJoined>(player.ws, {
                         label: "PlayerJoined",
-                        hex_color: other_player.hex_color,
+                        style: other_player.style,
                         id: other_player.id,
                         location: other_player.location
                     });
@@ -117,9 +120,9 @@ const tick = () => {
         if (player !== undefined) {
             players.forEach(other_player => {
                 if (id !== other_player.id) {
-                    common.send_ws_message<common.PlayerJoined>(other_player.ws, {
+                    send_ws_message<PlayerJoined>(other_player.ws, {
                         label: "PlayerJoined",
-                        hex_color: player.hex_color,
+                        style: player.style,
                         id: player.id,
                         location: player.location
                     });
@@ -131,7 +134,7 @@ const tick = () => {
     // handle leavers
     left_players.forEach(id => {
         players.forEach(player => {
-            common.send_ws_message<common.PlayerLeft>(player.ws, {
+            send_ws_message<PlayerLeft>(player.ws, {
                 label: "PlayerLeft",
                 id
             });
@@ -141,8 +144,8 @@ const tick = () => {
     // handle movement
     players.forEach(player => {
         players.forEach(other_player => {
-            if (player.id !== other_player.id && common.v2dist(player.location, player.movement.target) > 0.1 * common.PLAYER_RADIUS) {
-                common.send_ws_message<common.PlayerMove>(other_player.ws, {
+            if (player.id !== other_player.id && player.location.distance(player.movement.target) > 0.1 * common.PLAYER_RADIUS) {
+                send_ws_message<PlayerMove>(other_player.ws, {
                     label: "PlayerMove",
                     id: player.id,
                     location: player.location,
@@ -152,7 +155,7 @@ const tick = () => {
         });
     });
 
-    players.forEach(player => common.update_player_position(player, delta_time));
+    players.forEach(player => player.update_position(delta_time));
 
 
     const tick_time = performance.now() - timestamp;
