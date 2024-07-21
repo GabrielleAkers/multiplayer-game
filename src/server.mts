@@ -1,20 +1,85 @@
 import { WebSocketServer, WebSocket } from "ws";
 import * as common from "./common.mjs";
 import { Vector2 } from "./lib/vector2.js";
-import { IPlayer, Movement, Player } from "./lib/player.js";
-import { Constructor, get_random, random_hexcolor, send_ws_message } from "./lib/util.js";
+import { Movement, Player } from "./lib/player.js";
+import { get_random, random_hexcolor, send_ws_message as _send_ws_message, format_time, type KeysMatching } from "./lib/util.js";
 import { PlayerEvent, PlayerInit, PlayerJoined, PlayerLeft, PlayerMove, is_client_move } from "./lib/event.js";
 
 const MAX_CONNECTIONS = 10;
 const SERVER_FPS = 60;
 
-class WsPlayer extends Player {
-    constructor(public ws: WebSocket, ...args: ConstructorParameters<typeof Player>) {
+interface IAverage {
+    value: number;
+    push_sample: (v: number) => void;
+}
+
+class Average implements IAverage {
+    private samples: number[] = new Array(5);
+    value: number = 0;
+    push_sample(v: number) {
+        this.samples.unshift(v) > 5 ? this.samples.pop() : null;
+        this.value = this.samples.reduce((a, b) => a + b, 0) / this.samples.length;
+    }
+}
+
+interface ITracker {
+    value: number;
+    increment: (v: number) => void;
+}
+
+class Tracker implements ITracker {
+    constructor(public value: number) { }
+    increment(v: number) {
+        this.value += v;
+    }
+}
+
+interface IPerformanceStats {
+    frame_time: IAverage;
+    num_connections: ITracker;
+    bytes_sent: ITracker;
+    bytes_received: ITracker;
+    messages_sent: ITracker;
+    ticks: ITracker;
+    started_at: number;
+    uptime: number;
+}
+
+class PerformanceStats implements IPerformanceStats {
+    frame_time: IAverage = new Average();
+    num_connections: Tracker = new Tracker(0);
+    bytes_sent: Tracker = new Tracker(0);
+    bytes_received: Tracker = new Tracker(0);
+    messages_sent: ITracker = new Tracker(0);
+    ticks: Tracker = new Tracker(0);
+    started_at: number = 0;
+    uptime: number = 0;
+    constructor() { }
+
+    record<K extends KeysMatching<IPerformanceStats, ITracker>, A extends unknown[], R extends IPerformanceStats[K]["value"]>(tracker: K, fn: (...args: A) => R) {
+        return (...args: A) => {
+            const res = fn(...args);
+            this[tracker].increment(res);
+            return res;
+        };
+    }
+
+    count<K extends KeysMatching<IPerformanceStats, ITracker>, A extends unknown[], R extends IPerformanceStats[K]["value"]>(tracker: K, fn: (...args: A) => R) {
+        return (...args: A) => {
+            const res = fn(...args);
+            this[tracker].increment(1);
+            return res;
+        };
+    }
+}
+
+class ServerPlayer extends Player {
+    constructor(public ws: WebSocket, public new_movement: Movement, ...args: ConstructorParameters<typeof Player>) {
         super(...args);
     }
 }
 
-const players = new Map<number, WsPlayer>();
+const players = new Map<number, ServerPlayer>();
 let current_id = 0;
 const joined_players = new Set<number>();
 const left_players = new Set<number>();
@@ -25,6 +90,12 @@ const wss = new WebSocketServer({
     host: "0.0.0.0",
     port: common.SERVER_PORT
 });
+
+const perf_stats = new PerformanceStats();
+const send_ws_message = perf_stats.count(
+    "messages_sent",
+    perf_stats.record("bytes_sent", _send_ws_message)
+);
 
 wss.on("connection", (ws, req) => {
     if (players.size >= MAX_CONNECTIONS) {
@@ -40,7 +111,7 @@ wss.on("connection", (ws, req) => {
     const movement = new Movement(false, Vector2.from_vec2(location));
     const style = { hex_color: random_hexcolor() };
 
-    const player = new WsPlayer(ws, id, location, movement, style);
+    const player = new ServerPlayer(ws, new Movement(false, Vector2.from_vec2(location)), id, location, movement, style);
     players.set(id, player);
     event_queue.push({
         label: "PlayerJoined",
@@ -48,13 +119,16 @@ wss.on("connection", (ws, req) => {
         style,
         location
     });
+    perf_stats.num_connections.increment(1);
 
     ws.addEventListener("message", evt => {
-        const msg = JSON.parse(evt.data.toString());
+        const data_str = evt.data.toString();
+        const msg = JSON.parse(data_str);
+        perf_stats.bytes_received.increment(Buffer.from(data_str).length);
         // console.log("the messagerrrrr:", msg);
         if (is_client_move(msg)) {
-            console.log("the moverrrr", msg);
-            player.movement.copy(msg.movement);
+            // console.log("the moverrrr", msg);
+            player.new_movement.copy(msg.movement);
         }
     });
 
@@ -66,6 +140,7 @@ wss.on("connection", (ws, req) => {
             label: "PlayerLeft",
             id
         });
+        perf_stats.num_connections.increment(-1);
     });
 });
 
@@ -143,16 +218,19 @@ const tick = () => {
 
     // handle movement
     players.forEach(player => {
-        players.forEach(other_player => {
-            if (player.id !== other_player.id && player.location.distance(player.movement.target) > 0.1 * common.PLAYER_RADIUS) {
-                send_ws_message<PlayerMove>(other_player.ws, {
-                    label: "PlayerMove",
-                    id: player.id,
-                    location: player.location,
-                    movement: player.movement
-                });
-            }
-        });
+        if (!player.movement.equals(player.new_movement)) {
+            player.movement.copy(player.new_movement);
+            players.forEach(other_player => {
+                if (player.id !== other_player.id) {
+                    send_ws_message<PlayerMove>(other_player.ws, {
+                        label: "PlayerMove",
+                        id: player.id,
+                        location: player.location,
+                        movement: player.movement
+                    });
+                }
+            });
+        }
     });
 
     players.forEach(player => player.update_position(delta_time));
@@ -161,9 +239,25 @@ const tick = () => {
     const tick_time = performance.now() - timestamp;
     event_queue.length = 0;
 
+    perf_stats.ticks.increment(1);
+    perf_stats.frame_time.push_sample(tick_time);
+    perf_stats.uptime = process.uptime();
+
+    if (perf_stats.ticks.value % SERVER_FPS === 0)
+        console.log(`
+            frame time: ${perf_stats.frame_time.value}
+            connections: ${perf_stats.num_connections.value}
+            bytes sent: ${perf_stats.bytes_sent.value}
+            bytes received: ${perf_stats.bytes_received.value}
+            messages sent: ${perf_stats.messages_sent.value}
+            ticks: ${perf_stats.ticks.value}
+            uptime: ${format_time(perf_stats.uptime)}
+        `);
+
     setTimeout(tick, Math.max(0, 1000 / SERVER_FPS - tick_time));
 };
 
+perf_stats.started_at = Date.now();
 setTimeout(tick, 1000 / SERVER_FPS);
 
 console.log(`im listening on ws://0.0.0.0:${common.SERVER_PORT} :3`);

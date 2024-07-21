@@ -1,6 +1,6 @@
 import { PLAYER_RADIUS, PLAYER_SPEED } from "../common.mjs";
 import { is_boolean, is_string } from "./util.js";
-import { IVector2, Vector2, is_vector2 } from "./vector2.js";
+import { Vector2, is_vector2 } from "./vector2.js";
 
 export interface IMovement {
     is_moving: boolean;
@@ -14,6 +14,10 @@ export class Movement {
         this.is_moving = m.is_moving;
         this.target.copy(m.target);
         return this;
+    }
+
+    equals(m: IMovement) {
+        return this.is_moving === m.is_moving && this.target.equals(m.target);
     }
 }
 

@@ -12,13 +12,14 @@ export function is_boolean(arg: any): arg is boolean {
     return typeof (arg) === "boolean";
 }
 
-interface WsMessage {
+export interface WsMessage {
     label: string;
 }
 
-export const send_ws_message = <T extends WsMessage>(ws: ws.WebSocket | WebSocket, message: T) => {
+export const send_ws_message = <T extends WsMessage>(ws: ws.WebSocket | WebSocket, message: T): number => {
     const msg = JSON.stringify(message);
     ws.send(msg);
+    return msg.length;
 };
 
 export const get_random = (min: number, max: number) => {
@@ -27,4 +28,12 @@ export const get_random = (min: number, max: number) => {
 
 export const random_hexcolor = () => "#000000".replace(/0/g, function () { return (~~(Math.random() * 16)).toString(16); });
 
-export type Constructor = new (...args: any[]) => {};
+export function format_time(sec: number) {
+    const hours = Math.floor(sec / 3600);
+    const minutes = Math.floor(sec % 3600 / 60);
+    const seconds = Math.floor(sec % 60);
+    const pad = (s: number) => (s < 10 ? "0" : "") + s;
+    return `${pad(hours)}h:${pad(minutes)}m:${pad(seconds)}s`;
+}
+
+export type KeysMatching<T, V> = { [K in keyof T]-?: T[K] extends V ? K : never }[keyof T];

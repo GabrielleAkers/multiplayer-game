@@ -1,6 +1,6 @@
-import { IPlayerStyle, is_player_style, IMovement, is_movement } from "./player.js";
+import { type IPlayerStyle, is_player_style, type IMovement, is_movement } from "./player.js";
 import { is_number } from "./util.js";
-import { IVector2, is_vector2 } from "./vector2.js";
+import { type IVector2, is_vector2 } from "./vector2.js";
 
 export interface PlayerInit {
     label: "PlayerInit";

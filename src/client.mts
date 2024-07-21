@@ -1,4 +1,5 @@
 import * as common from "./common.mjs";
+import { draw_circle, draw_line } from "./lib/draw.js";
 import { is_player_init, is_player_joined, is_player_left, is_player_move, ClientMove } from "./lib/event.js";
 import { Movement, Player } from "./lib/player.js";
 import { send_ws_message } from "./lib/util.js";
@@ -33,7 +34,7 @@ import { Vector2 } from "./lib/vector2.js";
             } else if (is_player_left(msg)) {
                 players.delete(msg.id);
             } else if (is_player_move(msg)) {
-                console.log("moving time :3", msg);
+                // console.log("moving time :3", msg);
                 const p = players.get(msg.id);
                 if (p !== undefined) {
                     p.location.copy(msg.location);
@@ -78,10 +79,11 @@ import { Vector2 } from "./lib/vector2.js";
         previous_timestamp = timestamp;
 
         // construct canvas
+        // ctx.reset();
         ctx.fillStyle = "#333333";
         ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
-        if (ws === undefined) {
+        if (ws == undefined) {
             const label = "Not connected (ᗒᗣᗕ)";
             const size = ctx.measureText(label);
             ctx.font = "52px bold";
@@ -91,27 +93,29 @@ import { Vector2 } from "./lib/vector2.js";
             // draw other players
             players.forEach(p => {
                 if (player !== undefined && player.id !== p.id) {
-                    if (p.movement.is_moving) p.update_position(delta_time);
-                    ctx.beginPath();
-                    ctx.arc(p.location.x, p.location.y, common.PLAYER_RADIUS, 0, 2 * Math.PI);
-                    ctx.fillStyle = p.style.hex_color;
-                    ctx.fill();
-                    ctx.strokeStyle = "grey";
-                    ctx.lineWidth = 1;
-                    ctx.stroke();
+                    if (p.movement.is_moving) {
+                        p.update_position(delta_time);
+                        draw_line(ctx, p.location, p.movement.target, p.style.hex_color, [], 1);
+                    }
+                    draw_circle(ctx, p.location, common.PLAYER_RADIUS, p.style.hex_color, "grey", 1);
                 }
             });
 
             // draw self
             if (player !== undefined) {
-                if (player.movement.is_moving) player.update_position(delta_time);
-                ctx.beginPath();
-                ctx.arc(player.location.x, player.location.y, common.PLAYER_RADIUS, 0, 2 * Math.PI);
-                ctx.fillStyle = player.style.hex_color;
-                ctx.fill();
-                ctx.strokeStyle = "white";
-                ctx.lineWidth = 3;
-                ctx.stroke();
+                if (player.movement.is_moving) {
+                    player.update_position(delta_time);
+                    draw_line(ctx, player.location, player.movement.target, player.style.hex_color, [], 1);
+
+                    if (player.location.distance(player.movement.target) <= 0.1 * common.PLAYER_RADIUS) {
+                        player.movement.is_moving = false;
+                        send_ws_message<ClientMove>(ws, {
+                            label: "ClientMove",
+                            movement: player.movement
+                        });
+                    }
+                }
+                draw_circle(ctx, player.location, common.PLAYER_RADIUS, player.style.hex_color, "white", 3);
             }
         }
         window.requestAnimationFrame(draw_frame);
