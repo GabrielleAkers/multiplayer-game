@@ -12,6 +12,10 @@ export function is_boolean(arg: any): arg is boolean {
     return typeof (arg) === "boolean";
 }
 
+export function is_array(arg: any): arg is Array<any> {
+    return Array.isArray(arg);
+}
+
 export interface WsMessage {
     label: string;
 }

@@ -17,11 +17,12 @@ export interface PlayerJoined {
     label: "PlayerJoined";
     id: number;
     location: IVector2;
+    lookat: IVector2;
     style: IPlayerStyle;
 }
 
 export function is_player_joined(arg: any): arg is PlayerJoined {
-    return arg && arg.label === "PlayerJoined" && is_number(arg.id) && is_vector2(arg.location) && is_player_style(arg.style);
+    return arg && arg.label === "PlayerJoined" && is_number(arg.id) && is_vector2(arg.location) && is_vector2(arg.lookat) && is_player_style(arg.style);
 }
 
 export interface PlayerLeft {
@@ -55,4 +56,23 @@ export function is_player_move(arg: any): arg is PlayerMove {
     return arg && arg.label === "PlayerMove" && is_number(arg.id) && is_vector2(arg.location) && is_movement(arg.movement);
 }
 
-export type PlayerEvent = PlayerJoined | PlayerLeft | PlayerMove;
+export interface ClientLook {
+    label: "ClientLook";
+    at: IVector2;
+}
+
+export function is_client_look(arg: any): arg is ClientLook {
+    return arg && arg.label === "ClientLook" && is_vector2(arg.at);
+}
+
+export interface PlayerLook {
+    label: "PlayerLook";
+    id: number;
+    at: IVector2;
+}
+
+export function is_player_look(arg: any): arg is PlayerLook {
+    return arg && arg.label === "PlayerLook" && is_vector2(arg.at);
+}
+
+export type PlayerEvent = PlayerJoined | PlayerLeft | PlayerMove | PlayerLook;

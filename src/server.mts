@@ -3,10 +3,9 @@ import * as common from "./common.mjs";
 import { Vector2 } from "./lib/vector2.js";
 import { Movement, Player } from "./lib/player.js";
 import { get_random, random_hexcolor, send_ws_message as _send_ws_message, format_time, type KeysMatching } from "./lib/util.js";
-import { PlayerEvent, PlayerInit, PlayerJoined, PlayerLeft, PlayerMove, is_client_move } from "./lib/event.js";
+import { PlayerEvent, PlayerInit, PlayerJoined, PlayerLeft, PlayerLook, PlayerMove, is_client_look, is_client_move } from "./lib/event.js";
 
 const MAX_CONNECTIONS = 10;
-const SERVER_FPS = 60;
 
 interface IAverage {
     value: number;
@@ -40,6 +39,7 @@ interface IPerformanceStats {
     bytes_sent: ITracker;
     bytes_received: ITracker;
     messages_sent: ITracker;
+    messages_received: ITracker;
     ticks: ITracker;
     started_at: number;
     uptime: number;
@@ -51,6 +51,7 @@ class PerformanceStats implements IPerformanceStats {
     bytes_sent: Tracker = new Tracker(0);
     bytes_received: Tracker = new Tracker(0);
     messages_sent: ITracker = new Tracker(0);
+    messages_received: ITracker = new Tracker(0);
     ticks: Tracker = new Tracker(0);
     started_at: number = 0;
     uptime: number = 0;
@@ -74,7 +75,12 @@ class PerformanceStats implements IPerformanceStats {
 }
 
 class ServerPlayer extends Player {
-    constructor(public ws: WebSocket, public new_movement: Movement, ...args: ConstructorParameters<typeof Player>) {
+    constructor(
+        public ws: WebSocket,
+        public new_movement: Movement,
+        public new_lookat: Vector2,
+        ...args: ConstructorParameters<typeof Player>
+    ) {
         super(...args);
     }
 }
@@ -108,16 +114,18 @@ wss.on("connection", (ws, req) => {
         get_random(0.1 * common.CANVAS_WIDTH + 2 * common.PLAYER_RADIUS, 0.9 * common.CANVAS_WIDTH - 2 * common.PLAYER_RADIUS),
         get_random(0.1 * common.CANVAS_HEIGHT + 2 * common.PLAYER_RADIUS, 0.9 * common.CANVAS_HEIGHT - 2 * common.PLAYER_RADIUS)
     );
-    const movement = new Movement(false, Vector2.from_vec2(location));
+    const movement = new Movement(false, 0);
+    const lookat = new Vector2(0, 0);
     const style = { hex_color: random_hexcolor() };
 
-    const player = new ServerPlayer(ws, new Movement(false, Vector2.from_vec2(location)), id, location, movement, style);
+    const player = new ServerPlayer(ws, new Movement(false, 0), new Vector2(0, 0), id, location, movement, lookat, style);
     players.set(id, player);
     event_queue.push({
         label: "PlayerJoined",
         id,
         style,
-        location
+        location,
+        lookat
     });
     perf_stats.num_connections.increment(1);
 
@@ -125,10 +133,14 @@ wss.on("connection", (ws, req) => {
         const data_str = evt.data.toString();
         const msg = JSON.parse(data_str);
         perf_stats.bytes_received.increment(Buffer.from(data_str).length);
+        perf_stats.messages_received.increment(1);
         // console.log("the messagerrrrr:", msg);
         if (is_client_move(msg)) {
             // console.log("the moverrrr", msg);
             player.new_movement.copy(msg.movement);
+        }
+        if (is_client_look(msg)) {
+            player.new_lookat.copy(msg.at);
         }
     });
 
@@ -182,7 +194,8 @@ const tick = () => {
                         label: "PlayerJoined",
                         style: other_player.style,
                         id: other_player.id,
-                        location: other_player.location
+                        location: other_player.location,
+                        lookat: other_player.lookat
                     });
                 }
             });
@@ -199,7 +212,8 @@ const tick = () => {
                         label: "PlayerJoined",
                         style: player.style,
                         id: player.id,
-                        location: player.location
+                        location: player.location,
+                        lookat: player.lookat,
                     });
                 }
             });
@@ -233,6 +247,22 @@ const tick = () => {
         }
     });
 
+    // handle lookat
+    players.forEach(player => {
+        if (!player.lookat.equals(player.new_lookat)) {
+            player.lookat.copy(player.new_lookat);
+            players.forEach(other_player => {
+                if (player.id !== other_player.id) {
+                    send_ws_message<PlayerLook>(other_player.ws, {
+                        label: "PlayerLook",
+                        id: player.id,
+                        at: player.lookat
+                    });
+                }
+            });
+        }
+    });
+
     players.forEach(player => player.update_position(delta_time));
 
 
@@ -243,21 +273,22 @@ const tick = () => {
     perf_stats.frame_time.push_sample(tick_time);
     perf_stats.uptime = process.uptime();
 
-    if (perf_stats.ticks.value % SERVER_FPS === 0)
+    if (perf_stats.ticks.value % common.TARGET_FPS === 0)
         console.log(`
             frame time: ${perf_stats.frame_time.value}
             connections: ${perf_stats.num_connections.value}
             bytes sent: ${perf_stats.bytes_sent.value}
             bytes received: ${perf_stats.bytes_received.value}
             messages sent: ${perf_stats.messages_sent.value}
+            messages received: ${perf_stats.messages_received.value}
             ticks: ${perf_stats.ticks.value}
             uptime: ${format_time(perf_stats.uptime)}
         `);
 
-    setTimeout(tick, Math.max(0, 1000 / SERVER_FPS - tick_time));
+    setTimeout(tick, Math.max(0, 1000 / common.TARGET_FPS - tick_time));
 };
 
 perf_stats.started_at = Date.now();
-setTimeout(tick, 1000 / SERVER_FPS);
+setTimeout(tick, 1000 / common.TARGET_FPS);
 
 console.log(`im listening on ws://0.0.0.0:${common.SERVER_PORT} :3`);
