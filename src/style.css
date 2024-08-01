@@ -59,11 +59,12 @@ h6 {
   isolation: isolate;
 }
 
-#game_canvas {
+canvas {
   position: absolute;
   top: 0;
   bottom: 0;
   left: 0;
   right: 0;
   margin: auto;
+  cursor: url("../cursor.png") 16 16, auto;
 }

@@ -27,6 +27,7 @@ export class GameLoop {
             this.accum_time -= this.time_step;
         }
 
+        // TODO: frame interpolation
         this.render();
         this.req_anim_frame_id = requestAnimationFrame(this.main);
     };

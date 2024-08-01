@@ -1,4 +1,5 @@
-import { type IPlayerStyle, is_player_style, type IMovement, is_movement } from "./player.js";
+import { type IPlayerStyle, is_player_style } from "./components/playerstyle.js";
+import { type IMovement, is_movement } from "./components/movement.js";
 import { is_number } from "./util.js";
 import { type IVector2, is_vector2 } from "./vector2.js";
 
@@ -75,4 +76,13 @@ export function is_player_look(arg: any): arg is PlayerLook {
     return arg && arg.label === "PlayerLook" && is_vector2(arg.at);
 }
 
-export type PlayerEvent = PlayerJoined | PlayerLeft | PlayerMove | PlayerLook;
+export interface PlayerSeesYou {
+    label: "PlayerSeesYou";
+    id: number;
+}
+
+export function is_player_sees_you(arg: any): arg is PlayerSeesYou {
+    return arg && arg.label === "PlayerSeesYou" && is_number(arg.id);
+}
+
+export type PlayerEvent = PlayerJoined | PlayerLeft | PlayerMove | PlayerLook | PlayerSeesYou;

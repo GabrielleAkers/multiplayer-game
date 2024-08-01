@@ -1,5 +1,4 @@
-import { CANVAS_HEIGHT, CANVAS_WIDTH } from "../common.mjs";
-import { IVector2, Vector2 } from "./vector2.js";
+import { type IVector2, Vector2 } from "../vector2.js";
 
 export enum Direction {
     LEFT = 0,
@@ -34,17 +33,17 @@ export const DIRECTION_KEYS: { [key: string]: Direction; } = {
 };
 
 export class Input {
-    private held_keys: (keyof typeof DIRECTION_KEYS)[] = [];
+    private held_direction: (keyof typeof DIRECTION_KEYS)[] = [];
     private mouse_pos: Vector2 = new Vector2(0, 0);
     constructor(canvas: HTMLCanvasElement) {
         document.addEventListener("keydown", evt => {
             if (Object.hasOwn(DIRECTION_KEYS, evt.code))
-                this.on_key_pressed(evt.code);
+                this.on_direction_key_pressed(evt.code);
         });
 
         document.addEventListener("keyup", evt => {
             if (Object.hasOwn(DIRECTION_KEYS, evt.code))
-                this.on_key_released(evt.code);
+                this.on_direction_key_released(evt.code);
         });
 
         canvas.addEventListener("mousemove", evt => {
@@ -57,19 +56,36 @@ export class Input {
     }
 
     get direction() {
-        if (this.held_keys.length > 1)
-            return [DIRECTION_KEYS[this.held_keys[0]], DIRECTION_KEYS[this.held_keys[1]]];
-        return DIRECTION_KEYS[this.held_keys[0]];
+        if (this.held_direction.length > 1) {
+            const checked = [DIRECTION_KEYS[this.held_direction[0]], DIRECTION_KEYS[this.held_direction[1]]];
+            if (checked.indexOf(Direction.UP) !== -1) {
+                if (checked.indexOf(Direction.LEFT) !== -1) {
+                    return Direction.UP_LEFT;
+                }
+                if (checked.indexOf(Direction.RIGHT) !== -1) {
+                    return Direction.UP_RIGHT;
+                }
+            }
+            if (checked.indexOf(Direction.DOWN) !== -1) {
+                if (checked.indexOf(Direction.LEFT) !== -1) {
+                    return Direction.DOWN_LEFT;
+                }
+                if (checked.indexOf(Direction.RIGHT) !== -1) {
+                    return Direction.DOWN_RIGHT;
+                }
+            }
+        }
+        return DIRECTION_KEYS[this.held_direction[0]];
     }
 
-    private on_key_pressed(key: keyof typeof DIRECTION_KEYS) {
-        if (this.held_keys.indexOf(key) === -1)
-            this.held_keys.unshift(key);
+    private on_direction_key_pressed(key: keyof typeof DIRECTION_KEYS) {
+        if (this.held_direction.indexOf(key) === -1)
+            this.held_direction.unshift(key);
     }
 
-    private on_key_released(key: keyof typeof DIRECTION_KEYS) {
-        const idx = this.held_keys.indexOf(key);
+    private on_direction_key_released(key: keyof typeof DIRECTION_KEYS) {
+        const idx = this.held_direction.indexOf(key);
         if (idx === -1) return;
-        this.held_keys.splice(idx, 1);
+        this.held_direction.splice(idx, 1);
     }
 }

@@ -1,9 +1,11 @@
 import { WebSocketServer, WebSocket } from "ws";
 import * as common from "./common.mjs";
 import { Vector2 } from "./lib/vector2.js";
-import { Movement, Player } from "./lib/player.js";
-import { get_random, random_hexcolor, send_ws_message as _send_ws_message, format_time, type KeysMatching } from "./lib/util.js";
-import { PlayerEvent, PlayerInit, PlayerJoined, PlayerLeft, PlayerLook, PlayerMove, is_client_look, is_client_move } from "./lib/event.js";
+import { Player } from "./lib/gameobjects/player.js";
+import { Movement } from "./lib/components/movement.js";
+import { get_random, random_hexcolor, send_ws_message as _send_ws_message, format_time, type KeysMatching, IWsMessage } from "./lib/util.js";
+import { PlayerEvent, PlayerInit, PlayerJoined, PlayerLeft, PlayerLook, PlayerMove, PlayerSeesYou, is_client_look, is_client_move } from "./lib/event.js";
+import { Transform } from "./lib/components/transform.js";
 
 const MAX_CONNECTIONS = 10;
 
@@ -56,22 +58,6 @@ class PerformanceStats implements IPerformanceStats {
     started_at: number = 0;
     uptime: number = 0;
     constructor() { }
-
-    record<K extends KeysMatching<IPerformanceStats, ITracker>, A extends unknown[], R extends IPerformanceStats[K]["value"]>(tracker: K, fn: (...args: A) => R) {
-        return (...args: A) => {
-            const res = fn(...args);
-            this[tracker].increment(res);
-            return res;
-        };
-    }
-
-    count<K extends KeysMatching<IPerformanceStats, ITracker>, A extends unknown[], R extends IPerformanceStats[K]["value"]>(tracker: K, fn: (...args: A) => R) {
-        return (...args: A) => {
-            const res = fn(...args);
-            this[tracker].increment(1);
-            return res;
-        };
-    }
 }
 
 class ServerPlayer extends Player {
@@ -79,6 +65,7 @@ class ServerPlayer extends Player {
         public ws: WebSocket,
         public new_movement: Movement,
         public new_lookat: Vector2,
+        public can_see: Set<number>,
         ...args: ConstructorParameters<typeof Player>
     ) {
         super(...args);
@@ -98,10 +85,12 @@ const wss = new WebSocketServer({
 });
 
 const perf_stats = new PerformanceStats();
-const send_ws_message = perf_stats.count(
-    "messages_sent",
-    perf_stats.record("bytes_sent", _send_ws_message)
-);
+const send_ws_message = <T extends IWsMessage>(ws: WebSocket, message: T) => {
+    const r = _send_ws_message(ws, message);
+    perf_stats.messages_sent.increment(1);
+    perf_stats.bytes_sent.increment(r);
+    return r;
+};
 
 wss.on("connection", (ws, req) => {
     if (players.size >= MAX_CONNECTIONS) {
@@ -114,11 +103,12 @@ wss.on("connection", (ws, req) => {
         get_random(0.1 * common.CANVAS_WIDTH + 2 * common.PLAYER_RADIUS, 0.9 * common.CANVAS_WIDTH - 2 * common.PLAYER_RADIUS),
         get_random(0.1 * common.CANVAS_HEIGHT + 2 * common.PLAYER_RADIUS, 0.9 * common.CANVAS_HEIGHT - 2 * common.PLAYER_RADIUS)
     );
+    const transform = new Transform(location);
     const movement = new Movement(false, 0);
     const lookat = new Vector2(0, 0);
     const style = { hex_color: random_hexcolor() };
 
-    const player = new ServerPlayer(ws, new Movement(false, 0), new Vector2(0, 0), id, location, movement, lookat, style);
+    const player = new ServerPlayer(ws, new Movement(false, 0), new Vector2(1, 0), new Set<number>(), id, transform, movement, style);
     players.set(id, player);
     event_queue.push({
         label: "PlayerJoined",
@@ -132,7 +122,8 @@ wss.on("connection", (ws, req) => {
     ws.addEventListener("message", evt => {
         const data_str = evt.data.toString();
         const msg = JSON.parse(data_str);
-        perf_stats.bytes_received.increment(Buffer.from(data_str).length);
+        const l = Buffer.from(data_str).length;
+        perf_stats.bytes_received.increment(l);
         perf_stats.messages_received.increment(1);
         // console.log("the messagerrrrr:", msg);
         if (is_client_move(msg)) {
@@ -185,7 +176,7 @@ const tick = () => {
                 label: "PlayerInit",
                 id: player.id,
                 style: player.style,
-                location: player.location
+                location: player.transform.position
             });
 
             players.forEach(other_player => {
@@ -194,8 +185,8 @@ const tick = () => {
                         label: "PlayerJoined",
                         style: other_player.style,
                         id: other_player.id,
-                        location: other_player.location,
-                        lookat: other_player.lookat
+                        location: other_player.transform.position,
+                        lookat: other_player.transform.rotation
                     });
                 }
             });
@@ -212,8 +203,8 @@ const tick = () => {
                         label: "PlayerJoined",
                         style: player.style,
                         id: player.id,
-                        location: player.location,
-                        lookat: player.lookat,
+                        location: player.transform.position,
+                        lookat: player.transform.rotation,
                     });
                 }
             });
@@ -239,7 +230,7 @@ const tick = () => {
                     send_ws_message<PlayerMove>(other_player.ws, {
                         label: "PlayerMove",
                         id: player.id,
-                        location: player.location,
+                        location: player.transform.position,
                         movement: player.movement
                     });
                 }
@@ -249,18 +240,34 @@ const tick = () => {
 
     // handle lookat
     players.forEach(player => {
-        if (!player.lookat.equals(player.new_lookat)) {
-            player.lookat.copy(player.new_lookat);
+        if (!player.new_lookat.equals(player.transform.rotation)) {
+            player.transform.lookat(player.new_lookat);
             players.forEach(other_player => {
                 if (player.id !== other_player.id) {
                     send_ws_message<PlayerLook>(other_player.ws, {
                         label: "PlayerLook",
                         id: player.id,
-                        at: player.lookat
+                        at: player.transform.rotation
                     });
+                    if (common.in_cone(player, other_player)) {
+                        player.can_see.add(other_player.id);
+                    } else {
+                        player.can_see.delete(other_player.id);
+                    }
                 }
             });
         }
+    });
+
+    players.forEach(player => {
+        player.can_see.forEach(id => {
+            const p = players.get(id);
+            if (p)
+                send_ws_message<PlayerSeesYou>(p.ws, {
+                    label: "PlayerSeesYou",
+                    id: player.id
+                });
+        });
     });
 
     players.forEach(player => player.update_position(delta_time));

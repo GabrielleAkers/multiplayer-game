@@ -38,3 +38,21 @@ export function draw_circle(ctx: CanvasRenderingContext2D, ...[location, radius,
     ctx.stroke();
     ctx.closePath();
 }
+
+export type DrawCircleSectionProps = [
+    location: IVector2,
+    inner_radius: number,
+    outer_radius: number,
+    start_angle: number,
+    end_angle: number,
+    fill_style: string | CanvasGradient | CanvasPattern,
+];
+
+export function draw_circle_section(ctx: CanvasRenderingContext2D, ...[location, inner_radius, outer_radius, start_angle, end_angle, fill_style]: DrawCircleSectionProps) {
+    ctx.beginPath();
+    ctx.arc(location.x, location.y, outer_radius, start_angle, end_angle);
+    ctx.arc(location.x, location.y, inner_radius, end_angle, start_angle, true);
+    ctx.fillStyle = fill_style;
+    ctx.fill();
+    ctx.closePath();
+}

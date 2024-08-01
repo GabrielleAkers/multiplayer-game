@@ -97,6 +97,20 @@ export class Vector2 implements IVector2 {
         return this;
     }
 
+    rotate(theta: number) {
+        // screen space is left handed
+        this.x = this.x * Math.cos(theta) + this.y * Math.sin(theta);
+        this.y = -1 * this.x * Math.sin(theta) + this.y * Math.cos(theta);
+        return this;
+    }
+
+    angle_between(v: IVector2) {
+        const d = Math.sqrt(this.length_squared() * (v.x * v.x + v.y * v.y));
+        if (d === 0) return Math.PI / 2;
+        const t = this.dot(v) / d;
+        return Math.acos(Math.max(-1, Math.min(1, t)));
+    }
+
     *[Symbol.iterator]() {
         yield this.x;
         yield this.y;

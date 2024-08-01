@@ -8,4 +8,4 @@ $ npm i
 $ npm run dev
 ```
 
-Then open a few browser windows to http://localhost:3000 and click around to move.
+Then open a few browser windows to http://localhost:3000 and move around key wasd and look with the mouse.

@@ -16,11 +16,11 @@ export function is_array(arg: any): arg is Array<any> {
     return Array.isArray(arg);
 }
 
-export interface WsMessage {
+export interface IWsMessage {
     label: string;
 }
 
-export const send_ws_message = <T extends WsMessage>(ws: ws.WebSocket | WebSocket, message: T): number => {
+export const send_ws_message = <T extends IWsMessage>(ws: ws.WebSocket | WebSocket, message: T): number => {
     const msg = JSON.stringify(message);
     ws.send(msg);
     return msg.length;
